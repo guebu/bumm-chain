@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"go.mod/config"
-	"go.mod/model"
+	"go.mod/model/account"
 	"go.mod/model/trx"
 	"testing"
 )
@@ -16,8 +16,8 @@ func TestMain(m *testing.M) {
 }
 */
 
-const account1 				model.Account 	= "guebu"
-const account2 				model.Account 	= "ferdl"
+const account1 account.Account = "guebu"
+const account2 account.Account = "ferdl"
 const trxAmount 			uint 			= 	uint(10)
 const rewAmount				uint 			= 	uint(10)
 
@@ -34,6 +34,75 @@ func TestNewStateFromDisk(t *testing.T) {
 
 	assert.Nil(t, err, "State should be readable!")
 	assert.NotNil(t, state, "State object should be available!")
+
+
+	var trx1 = trx.Trx{
+		From: account1,
+		To: account2,
+		Value: trxAmount,
+		Data: "trx1",
+	}
+
+	var trx2 = trx.Trx{
+		From: account1,
+		To: account2,
+		Value: trxAmount,
+		Data: "trx2",
+	}
+
+	err1 := state.Add(trx1)
+	err2 := state.Add(trx2)
+	assert.Nil(t, err1, "After reading the state from disk, adding a trx shouldn't be a problem!" )
+	assert.Nil(t, err2, "After reading the state from disk, adding a trx shouldn't be a problem!" )
+
+	errPersist := state.Persist()
+	assert.Nil(t, errPersist, "Persisting db file shouldn't be a problem!" )
+}
+
+func TestNotSuccessfullAddingOfTrxToMemPool(t *testing.T){
+	var trx = trx.Trx{
+		From: account1,
+		To: account2,
+		Value: tooBigAmount,
+		Data: "",
+	}
+
+	var initialBalances = map[account.Account]uint{
+		account1: initialBalAmount1,
+		account2: initialBalAmount2,
+	}
+
+	var state = State{
+		Balances: initialBalances,
+	}
+
+	err := state.Add(trx)
+
+	assert.NotNil(t, err, "Based on a proper state test trx should be addedd to mem pool!")
+}
+
+func TestSuccessfullAddingOfTrxToMemPool(t *testing.T){
+
+	var trx = trx.Trx{
+		From: account1,
+		To: account2,
+		Value: trxAmount,
+		Data: "",
+	}
+
+	var initialBalances = map[account.Account]uint{
+		account1: initialBalAmount1,
+		account2: initialBalAmount2,
+	}
+
+	var state = State{
+		Balances: initialBalances,
+	}
+
+	err := state.Add(trx)
+
+	assert.Nil(t, err, "Based on a proper state test trx should be addedd to mem pool!")
+
 }
 
 func TestApplyReward(t *testing.T) {
@@ -45,7 +114,7 @@ func TestApplyReward(t *testing.T) {
 		Data: config.RewardTrx,
 	}
 
-	var initialBalances = map[model.Account]uint{
+	var initialBalances = map[account.Account]uint{
 		account1: initialBalAmount1,
 	}
 
@@ -67,7 +136,7 @@ func TestProperBookingWithPositiveValue(t *testing.T) {
 		Data: "",
 	}
 
-	var initialBalances = map[model.Account]uint{
+	var initialBalances = map[account.Account]uint{
 		account1: initialBalAmount1,
 		account2: initialBalAmount2,
 	}
@@ -91,7 +160,7 @@ func TestEnoughBalance(t *testing.T) {
 		Data: "",
 	}
 
-	var initialBalances = map[model.Account]uint{
+	var initialBalances = map[account.Account]uint{
 		account1: initialBalAmount1,
 		account2: initialBalAmount2,
 	}
@@ -115,7 +184,7 @@ func TestNotEnoughBalance(t *testing.T) {
 		Data: "",
 	}
 
-	var initialBalances = map[model.Account]uint{
+	var initialBalances = map[account.Account]uint{
 		account1: initialBalAmount1,
 		account2: initialBalAmount2,
 	}

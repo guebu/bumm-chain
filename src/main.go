@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/guebu/common-utils/logger"
-	"go.mod/src/app"
+	"go.mod/app"
 )
 
 func main() {

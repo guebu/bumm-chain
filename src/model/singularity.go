@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/guebu/common-utils/logger"
+	"go.mod/model/account"
 	"io/ioutil"
 )
 
 type Singularity struct {
-	Balances map[Account]uint `json:"balances"`
-	Symbol   string           `json:"symbol"`
+	Balances map[account.Account]uint `json:"balances"`
+	Symbol   string                   `json:"symbol"`
 }
 
 func LoadSingularity(path string) (*Singularity, error) {

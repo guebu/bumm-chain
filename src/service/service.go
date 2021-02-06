@@ -1,15 +1,11 @@
 package service
 
 import (
-	"bufio"
-	"encoding/json"
-	"go.mod/model"
 	"go.mod/model/state"
-	"os"
-	"path/filepath"
 )
 
 func NewStateFromDisk() (*state.State, error) {
+	/*
 	// get current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -46,5 +42,7 @@ func NewStateFromDisk() (*state.State, error) {
 			return nil, err
 		}
 	}
-	return state, nil
+	*)
+	 */
+	return nil, nil
 }

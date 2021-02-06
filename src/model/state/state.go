@@ -7,12 +7,13 @@ import (
 	"github.com/guebu/common-utils/logger"
 	"go.mod/helper"
 	"go.mod/model"
+	"go.mod/model/account"
 	"go.mod/model/trx"
 	"os"
 )
 
 type State struct {
-	Balances map[model.Account]uint
+	Balances map[account.Account]uint
 	txMempool []trx.Trx
 	dbFile *os.File
 }
@@ -34,16 +35,47 @@ func (s *State) apply(tx trx.Trx) error {
 	return nil
 }
 
+func (s *State) Add(trx trx.Trx) error {
+	logger.Info("Start addint trx to mem pool!", "Layer:Model", "Func:Add", "Status:Start")
+	if err := s.apply(trx); err != nil {
+		logger.Error("Error in applying trx to current state!", err, "Layer:Model", "Func:NewStateFromDisk", "Status:Error")
+		return err
+	}
+	s.txMempool = append(s.txMempool, trx)
+	logger.Info("Added trx to mem pool successfully!", "Layer:Model", "Func:Add", "Status:End")
+	fmt.Println(s.txMempool)
+	return nil
+}
+
+func (s *State) Persist() error {
+	logger.Info("Start of persisting mempool!", "Layer:Model", "Func:Persist", "Status:Start")
+
+	// Make a copy of mempool because the s.txMempool will be modified
+	// in the loop below
+	mempool := make([]trx.Trx, len(s.txMempool))
+	copy(mempool, s.txMempool)
+
+	for i := 0; i < len(mempool); i++ {
+		txJson, err := json.Marshal(mempool[i])
+		if err != nil {
+			logger.Error("Error in marshalling mempool content!", err, "Layer:Model", "Func:Persist", "Status:Error")
+			return err
+		}
+		if _, err = s.dbFile.Write(append(txJson, '\n')); err != nil {
+			logger.Error("Error in appending trx from mempool to file!", err, "Layer:Model", "Func:Persist", "Status:Error")
+			return err
+		}
+		// Remove the TX written to a file from the mempool
+		// Yes... this particular Go syntax is a bit weird
+		s.txMempool = append(s.txMempool[:0], s.txMempool[0+1:]...)
+	}
+	logger.Info("End of persisting mempool!", "Layer:Model", "Func:Persist", "Status:End")
+	return nil
+}
+
 func NewStateFromDisk() (*State, error) {
 	logger.Info("Start reading state from disk!", "Layer:Model", "Func:NewStateFromDisk", "Status:Start")
-	// get current working directory
-	/*
-	cwd, err := os.Getwd()
-	if err != nil {
-		logger.Error("Error in getting current working directory", err, "Layer:Model", "Func:NewStateFromDisk", "Status:Error")
-		return nil, err
-	}
-	 */
+
 	singularityFilePath := helper.GetSingularityFilePath()
 
 	gen, err := model.LoadSingularity(singularityFilePath)
@@ -53,7 +85,7 @@ func NewStateFromDisk() (*State, error) {
 		return nil, err
 	}
 	logger.Info("Singularity File read successfull", "Layer:Model", "Func:NewStateFromDisk", "Status:Pending")
-	balances := make(map[model.Account]uint)
+	balances := make(map[account.Account]uint)
 	for account, balance := range gen.Balances {
 		balances[account] = balance
 	}
@@ -89,4 +121,8 @@ func NewStateFromDisk() (*State, error) {
 	}
 	logger.Info("Finished reading state from disk!", "Layer:Model", "Func:NewStateFromDisk", "Status:End")
 	return state, nil
+}
+
+func (s *State) Close() error {
+	return s.dbFile.Close()
 }
