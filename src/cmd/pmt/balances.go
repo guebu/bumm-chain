@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/guebu/common-utils/errors"
+	"github.com/guebu/common-utils/logger"
 	"github.com/spf13/cobra"
 	"go.mod/model/state"
 	"os"
@@ -33,9 +34,16 @@ var balancesListCmd = &cobra.Command{
 		}
 		defer state.Close()
 
+		snapshot, err := state.GetSnapshot()
+
+		if err != nil {
+			logger.Error("Snapshot couldn't be created!", err, "Layer:Cmd", "Status:Error")
+		}
+		fmt.Println("__________________")
+		fmt.Printf("Snapshot: %x\n", snapshot)
+		fmt.Println("__________________")
 		fmt.Println("Accounts balances:")
 		fmt.Println("__________________")
-		fmt.Println("")
 
 		for account, balance := range state.Balances {
 			fmt.Println(fmt.Sprintf("%s: %d", account, balance))

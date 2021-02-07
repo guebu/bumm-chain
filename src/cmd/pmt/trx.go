@@ -34,11 +34,12 @@ func trxAddCmd() *cobra.Command {
 			from, _ := cmd.Flags().GetString(config.FromCmdKey)
 			to, _ := cmd.Flags().GetString(config.ToCmdKey)
 			value, _ := cmd.Flags().GetUint(config.ValueCmdKey)
+			data, _ := cmd.Flags().GetString(config.DataCmdKey)
 
 			fromAcc := account.NewAccount(from)
 			toAcc := account.NewAccount(to)
 
-			trx := trx.NewTrx(*fromAcc, *toAcc, value, "")
+			trx := trx.NewTrx(*fromAcc, *toAcc, value, data)
 
 			state, err := state.NewStateFromDisk()
 			if err != nil {
@@ -57,11 +58,16 @@ func trxAddCmd() *cobra.Command {
 			}
 
 			// Flush the mempool TXs to disk
-			err = state.Persist()
-			if err != nil {
+			snapshot, perErr := state.Persist()
+			if perErr != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
+			fmt.Println("------------------------------------------------")
+			fmt.Println("Snapshot after persisting DB: ")
+			fmt.Println("------------------------------------------------")
+			fmt.Printf("%x\n", snapshot)
+			fmt.Println("------------------------------------------------")
 			fmt.Println("TX successfully added to the ledger.")
 		},
 	}
@@ -72,5 +78,6 @@ func trxAddCmd() *cobra.Command {
 	cmd.MarkFlagRequired(config.ToCmdKey)
 	cmd.Flags().Uint(config.ValueCmdKey, 0, "How many tokens to send")
 	cmd.MarkFlagRequired(config.ValueCmdKey)
+	cmd.Flags().String(config.DataCmdKey, "", "Additional trx info. Also for signaling Reward transactions")
 	return cmd
 }

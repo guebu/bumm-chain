@@ -2,6 +2,7 @@ package state
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"github.com/guebu/common-utils/logger"
@@ -9,13 +10,17 @@ import (
 	"go.mod/model"
 	"go.mod/model/account"
 	"go.mod/model/trx"
+	"io/ioutil"
 	"os"
 )
 
+type Snapshot [32]byte
+
 type State struct {
-	Balances map[account.Account]uint
-	txMempool []trx.Trx
-	dbFile *os.File
+	Balances 	map[account.Account]uint
+	txMempool 	[]trx.Trx
+	dbFile 		*os.File
+	snapshot 	Snapshot
 }
 
 func (s *State) apply(tx trx.Trx) error {
@@ -35,6 +40,13 @@ func (s *State) apply(tx trx.Trx) error {
 	return nil
 }
 
+func (s *State) GetSnapshot() (*Snapshot, error) {
+	if err := s.doSnapshot(); err != nil {
+		return nil, err
+	}
+	return &s.snapshot, nil
+}
+
 func (s *State) Add(trx trx.Trx) error {
 	logger.Info("Start addint trx to mem pool!", "Layer:Model", "Func:Add", "Status:Start")
 	if err := s.apply(trx); err != nil {
@@ -47,7 +59,7 @@ func (s *State) Add(trx trx.Trx) error {
 	return nil
 }
 
-func (s *State) Persist() error {
+func (s *State) Persist() (*Snapshot, error) {
 	logger.Info("Start of persisting mempool!", "Layer:Model", "Func:Persist", "Status:Start")
 
 	// Make a copy of mempool because the s.txMempool will be modified
@@ -59,18 +71,30 @@ func (s *State) Persist() error {
 		txJson, err := json.Marshal(mempool[i])
 		if err != nil {
 			logger.Error("Error in marshalling mempool content!", err, "Layer:Model", "Func:Persist", "Status:Error")
-			return err
+			return nil, err
 		}
+
+		logger.Info(fmt.Sprintf("Persisting new trx to disk: %s", txJson), "Layer:Model", "Func:Persist", "Status:Pending")
+
 		if _, err = s.dbFile.Write(append(txJson, '\n')); err != nil {
 			logger.Error("Error in appending trx from mempool to file!", err, "Layer:Model", "Func:Persist", "Status:Error")
-			return err
+			return nil, err
 		}
+
+		// Compute Snapshot
+		if err := s.doSnapshot(); err != nil {
+			logger.Error("Error while computing hast for DB!", err, "Layer:Model", "Func:Persist", "Status:Error")
+			return nil, err
+		}
+
+		logger.Info(fmt.Sprintf("New DB Snapshot:  %x", s.snapshot), "Layer:Model", "Func:Persist", "Status:Pending")
+		fmt.Printf("New DB Snapshot: %x\n", s.snapshot)
 		// Remove the TX written to a file from the mempool
 		// Yes... this particular Go syntax is a bit weird
 		s.txMempool = append(s.txMempool[:0], s.txMempool[0+1:]...)
 	}
 	logger.Info("End of persisting mempool!", "Layer:Model", "Func:Persist", "Status:End")
-	return nil
+	return &s.snapshot, nil
 }
 
 func NewStateFromDisk() (*State, error) {
@@ -98,7 +122,11 @@ func NewStateFromDisk() (*State, error) {
 	}
 
 	scanner := bufio.NewScanner(dbFile)
-	state := &State{balances, make([]trx.Trx, 0), dbFile}
+
+	var byteArray [32]byte
+	var initialHash Snapshot = byteArray
+
+	state := &State{balances, make([]trx.Trx, 0), dbFile, initialHash}
 	// Iterate over each the tx.db file's line
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
@@ -125,4 +153,18 @@ func NewStateFromDisk() (*State, error) {
 
 func (s *State) Close() error {
 	return s.dbFile.Close()
+}
+
+func (s *State) doSnapshot() error {
+	// Re-read the whole file from the first byte
+	_, err := s.dbFile.Seek(0, 0)
+	if err != nil {
+		return err
+	}
+	txsData, err := ioutil.ReadAll(s.dbFile)
+	if err != nil {
+		return err
+	}
+	s.snapshot = sha256.Sum256(txsData)
+	return nil
 }

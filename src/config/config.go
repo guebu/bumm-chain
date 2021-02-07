@@ -18,6 +18,7 @@ const Verbal = "TX Add && Balances List"
 const FromCmdKey = "from"
 const ToCmdKey = "to"
 const ValueCmdKey = "value"
+const DataCmdKey = "data"
 
 
 
