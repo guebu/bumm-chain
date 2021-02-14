@@ -34,7 +34,7 @@ var balancesListCmd = &cobra.Command{
 		}
 		defer state.Close()
 
-		snapshot, err := state.GetSnapshot()
+		snapshot := state.GetLatestBlockHash()
 
 		if err != nil {
 			logger.Error("Snapshot couldn't be created!", err, "Layer:Cmd", "Status:Error")

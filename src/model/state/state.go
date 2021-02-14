@@ -2,7 +2,6 @@ package state
 
 import (
 	"bufio"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"github.com/guebu/common-utils/logger"
@@ -10,21 +9,25 @@ import (
 	"go.mod/model"
 	"go.mod/model/account"
 	"go.mod/model/trx"
-	"io/ioutil"
 	"os"
 )
 
-type Snapshot [32]byte
+type Hash [32]byte
 
 type State struct {
 	Balances 	map[account.Account]uint
 	txMempool 	[]trx.Trx
 	dbFile 		*os.File
-	snapshot 	Snapshot
+	latestBlockHash 	Hash
+}
+
+func (s *State) GetLatestBlockHash() Hash {
+	return s.latestBlockHash
 }
 
 func (s *State) apply(tx trx.Trx) error {
 
+	logger.Info("Appliying trx to state", "Layer:Model", "Func:apply", "Status:Start")
 	if tx.IsReward() {
 		s.Balances[tx.To] += tx.Value
 		return nil
@@ -37,18 +40,21 @@ func (s *State) apply(tx trx.Trx) error {
 	s.Balances[tx.From] -= tx.Value
 	s.Balances[tx.To] += tx.Value
 
+	logger.Info("End of appliying trx to state", "Layer:Model", "Func:apply", "Status:End")
 	return nil
 }
 
-func (s *State) GetSnapshot() (*Snapshot, error) {
+/*
+func (s *State) GetSnapshot() (*Hash, error) {
 	if err := s.doSnapshot(); err != nil {
 		return nil, err
 	}
-	return &s.snapshot, nil
+	return &s.latestBlockHash, nil
 }
+ */
 
 func (s *State) Add(trx trx.Trx) error {
-	logger.Info("Start addint trx to mem pool!", "Layer:Model", "Func:Add", "Status:Start")
+	logger.Info("Start adding trx to mem pool!", "Layer:Model", "Func:Add", "Status:Start")
 	if err := s.apply(trx); err != nil {
 		logger.Error("Error in applying trx to current state!", err, "Layer:Model", "Func:NewStateFromDisk", "Status:Error")
 		return err
@@ -59,42 +65,57 @@ func (s *State) Add(trx trx.Trx) error {
 	return nil
 }
 
-func (s *State) Persist() (*Snapshot, error) {
+func (s *State) Persist() (*Hash, error) {
 	logger.Info("Start of persisting mempool!", "Layer:Model", "Func:Persist", "Status:Start")
 
-	// Make a copy of mempool because the s.txMempool will be modified
-	// in the loop below
-	mempool := make([]trx.Trx, len(s.txMempool))
-	copy(mempool, s.txMempool)
+	// Create a new Block with ONLY the new TXs
+	block := NewBlock(
+		s.latestBlockHash,
+		//int64(time.Now().Unix()),
+		int64(0),
+		s.txMempool,
+	)
 
-	for i := 0; i < len(mempool); i++ {
-		txJson, err := json.Marshal(mempool[i])
-		if err != nil {
-			logger.Error("Error in marshalling mempool content!", err, "Layer:Model", "Func:Persist", "Status:Error")
-			return nil, err
-		}
-
-		logger.Info(fmt.Sprintf("Persisting new trx to disk: %s", txJson), "Layer:Model", "Func:Persist", "Status:Pending")
-
-		if _, err = s.dbFile.Write(append(txJson, '\n')); err != nil {
-			logger.Error("Error in appending trx from mempool to file!", err, "Layer:Model", "Func:Persist", "Status:Error")
-			return nil, err
-		}
-
-		// Compute Snapshot
-		if err := s.doSnapshot(); err != nil {
-			logger.Error("Error while computing hast for DB!", err, "Layer:Model", "Func:Persist", "Status:Error")
-			return nil, err
-		}
-
-		logger.Info(fmt.Sprintf("New DB Snapshot:  %x", s.snapshot), "Layer:Model", "Func:Persist", "Status:Pending")
-		fmt.Printf("New DB Snapshot: %x\n", s.snapshot)
-		// Remove the TX written to a file from the mempool
-		// Yes... this particular Go syntax is a bit weird
-		s.txMempool = append(s.txMempool[:0], s.txMempool[0+1:]...)
+	// Compute the hash of the new block
+	blockHash, err := block.Hash()
+	logger.Info(fmt.Sprintf("Generated hash for new block: %x", blockHash), "Layer:Model", "Func:Persist", "Status:Pending")
+	if err != nil {
+		logger.Error("Hashing of block was not successfull!", err, "Layer:Model", "Func:Persist", "Status:Error")
+		return nil, err
 	}
-	logger.Info("End of persisting mempool!", "Layer:Model", "Func:Persist", "Status:End")
-	return &s.snapshot, nil
+
+	blockFs := BlockFS{	 *blockHash,
+						*block }
+
+	// Encode it into a JSON string
+	blockFsJson, err := json.Marshal(blockFs)
+	if err != nil {
+		logger.Error("Marshaling of block was not successfull!", err, "Layer:Model", "Func:Persist", "Status:Error")
+		return nil, err
+	}
+
+	logger.Info("###############################", "Layer:Model", "Func:Persist", "Status:Pending")
+	logger.Info("Persisting new block to disk!", "Layer:Model", "Func:Persist", "Status:Pending")
+	logger.Info(fmt.Sprintf("\t%s\n", blockFsJson), "Layer:Model", "Func:Persist", "Status:Pending")
+	logger.Info(fmt.Sprintf("Hash of block: %x", blockHash), "Layer:Model", "Func:Persist", "Status:Pending")
+	logger.Info(fmt.Sprintf("Hash of parent: %x", block.Header.Parent), "Layer:Model", "Func:Persist", "Status:Pending")
+	logger.Info("###############################", "Layer:Model", "Func:Persist", "Status:Pending")
+
+	// Write it to the DB file on a new line
+	if _, err = s.dbFile.Write(append(blockFsJson, '\n')); err != nil {
+		logger.Error("Error during writing trx data to file!", err, "Layer:Model", "Func:Persist", "Status:Error")
+		return nil, err
+	}
+	s.latestBlockHash = *blockHash
+
+	// Reset the Mempool
+	s.txMempool = []trx.Trx{}
+
+	logger.Info("Persisted mempool to disk!", "Layer:Model", "Func:Persist", "Status:End")
+
+	return &s.latestBlockHash, nil
+
+
 }
 
 func NewStateFromDisk() (*State, error) {
@@ -123,30 +144,47 @@ func NewStateFromDisk() (*State, error) {
 
 	scanner := bufio.NewScanner(dbFile)
 
-	var byteArray [32]byte
-	var initialHash Snapshot = byteArray
-
-	state := &State{balances, make([]trx.Trx, 0), dbFile, initialHash}
+	state := &State{balances, make([]trx.Trx, 0), dbFile, Hash{}}
+	noOfEntries := 0
 	// Iterate over each the tx.db file's line
 	for scanner.Scan() {
+		logger.Info(fmt.Sprintf("Number of entries: %v", noOfEntries), "Layer:Model", "Func:NewStateFromDisk", "Status:Pending")
+
 		if err := scanner.Err(); err != nil {
 			logger.Error("Error while scanning opened Trx-DB file", err, "Layer:Model", "Func:NewStateFromDisk", "Status:Error")
 			return nil, err
 		}
 		// Convert JSON encoded TX into an object (struct)
-		var trx trx.Trx
-		if err := json.Unmarshal(scanner.Bytes(), &trx); err != nil {
+		var blockFs BlockFS
+		blockFSJson := scanner.Bytes()
+		logger.Info("Scanned bytes: --------------------------------", "Layer:Model", "Func:NewStateFromDisk", "Status:Pending")
+		logger.Info(string(blockFSJson),"Layer:Model", "Func:NewStateFromDisk", "Status:Pending")
+		logger.Info("Scanned bytes: --------------------------------", "Layer:Model", "Func:NewStateFromDisk", "Status:Pending")
+		if err := json.Unmarshal(blockFSJson, &blockFs); err != nil {
 			logger.Error("Error while unmarshaling trx information read from DB-file!", err, "Layer:Model", "Func:NewStateFromDisk", "Status:Error")
 			return nil, err
 		}
+		logger.Info(blockFs.ToString(), "Layer:Model", "Func:NewStateFromDisk", "Status:Pending")
+		logger.Info(fmt.Sprintf("Block-Hash: %x", blockFs.Key) , "Layer:Model", "Func:NewStateFromDisk", "Status:Pending")
 
-		// Rebuild the state (user balances),
-		// as a series of events
-		if err := state.apply(trx); err != nil {
-			logger.Error("Error while applying trx to existing state...", err, "Layer:Model", "Func:NewStateFromDisk", "Status:Error")
-			return nil, err
+
+		trxs := blockFs.Value.TRXs
+
+		for i, trx := range trxs {
+			// Rebuild the state (user balances),
+			// as a series of events
+			if err := state.apply(trx); err != nil {
+				logger.Error("Error while applying trx to existing state...", err, "Layer:Model", "Func:NewStateFromDisk", "Status:Error")
+				return nil, err
+			}
+
+			logger.Info(fmt.Sprintf("Successfully processed transaction no. %d", i))
 		}
+		noOfEntries++
+
+		state.latestBlockHash = blockFs.Key
 	}
+
 	logger.Info("Finished reading state from disk!", "Layer:Model", "Func:NewStateFromDisk", "Status:End")
 	return state, nil
 }
@@ -155,16 +193,35 @@ func (s *State) Close() error {
 	return s.dbFile.Close()
 }
 
+/*
 func (s *State) doSnapshot() error {
+	logger.Info("Start creating a hash/snapshot for current state!", "Layer:Model", "Func:doSnapshot", "Status:Start")
 	// Re-read the whole file from the first byte
 	_, err := s.dbFile.Seek(0, 0)
 	if err != nil {
+		logger.Error("Error during seeking DB-File!", err, "Layer:Model", "Func:doSnapshot", "Status:Error")
 		return err
 	}
 	txsData, err := ioutil.ReadAll(s.dbFile)
 	if err != nil {
+		logger.Error("Error in reading info from DB-File!", err, "Layer:Model", "Func:doSnapshot", "Status:Error")
 		return err
 	}
-	s.snapshot = sha256.Sum256(txsData)
+	s.latestBlockHash = sha256.Sum256(txsData)
+	logger.Info("Snapshot/Hash successfully created for current state!", "Layer:Model", "Func:doSnapshot", "Status:End")
+	return nil
+}
+ */
+
+
+func (s *State) AddBlock(b Block) error {
+	logger.Info("Start adding Block to current state/blockchain!", "Layer:Model", "Func:AddBlock", "Status:Start")
+	for _, trx := range b.TRXs {
+		if err := s.Add(trx); err != nil {
+			logger.Error("Error in adding trx to state", err, "Layer:Model", "Func:AddBlock", "Status:Error")
+			return err
+		}
+	}
+	logger.Info("Block added successfully to current state/blockchain!", "Layer:Model", "Func:AddBlock", "Status:End")
 	return nil
 }

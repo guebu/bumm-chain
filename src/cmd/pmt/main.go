@@ -19,6 +19,7 @@ func main() {
 	tbbCmd.AddCommand(versionCmd)
 	tbbCmd.AddCommand(balancesListCmd)
 	tbbCmd.AddCommand(trxCmd())
+	tbbCmd.AddCommand(migCmd)
 
 	fmt.Println("----------------------------------")
 	fmt.Println("Start main routine of commands...")

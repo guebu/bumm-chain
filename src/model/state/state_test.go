@@ -55,8 +55,9 @@ func TestNewStateFromDisk(t *testing.T) {
 	assert.Nil(t, err1, "After reading the state from disk, adding a trx shouldn't be a problem!" )
 	assert.Nil(t, err2, "After reading the state from disk, adding a trx shouldn't be a problem!" )
 
-	errPersist := state.Persist()
+	myHash, errPersist := state.Persist()
 	assert.Nil(t, errPersist, "Persisting db file shouldn't be a problem!" )
+	assert.NotNil(t, myHash, "Hash as result of persisting data should be available!" )
 }
 
 func TestNotSuccessfullAddingOfTrxToMemPool(t *testing.T){
